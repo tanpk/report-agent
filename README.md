@@ -86,7 +86,7 @@ report-agent/
 | 用途 | モデル |
 |---|---|
 | レポート生成（要点まとめ・全文） | `gemini-3-flash-preview` |
-| Excel列番号解析・OCR | `gemini-3.0-flash-lite-preview` |
+| Excel列番号解析・OCR | `gemini-3.1-flash-lite-preview` |
 
 ## 注意事項
 
