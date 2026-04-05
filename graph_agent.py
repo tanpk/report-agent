@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- モデル設定 ---
+MODEL_LOW = "gemini-3.1-flash-lite-preview"  # 軽量処理（Excel列番号解析等）
+
 MARKERS = ["*", "x", "o", "^", "square", "+", "diamond"]
 LEGEND_LOCATIONS = ["southeast", "northeast", "northwest", "southwest", "best"]
 
@@ -108,7 +111,7 @@ class GraphAgent:
         )
 
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model=MODEL_LOW,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
@@ -117,7 +120,13 @@ class GraphAgent:
         )
 
         text = response.text.strip()
+        # コードブロックを除去
         text = re.sub(r"```json|```", "", text).strip()
+        # JSONブロックを正規表現で抽出（余分なテキストが混入する場合の保険）
+        match = re.search(r'{.*?}', text, re.DOTALL)
+        if not match:
+            raise ValueError(f"Geminiの返答からJSONを抽出できませんでした: {text}")
+        text = match.group(0)
         return json.loads(text)
 
     # --- ③ .matファイル生成 ---

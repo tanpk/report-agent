@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- モデル設定 ---
+MODEL_OCR = "gemini-2.5-flash"  # OCR処理
+
 OCR_CACHE_DIR = ".ocr_cache"  # OCRキャッシュの保存先
 
 # --- OCRキャッシュ ---
@@ -74,7 +77,7 @@ def _ocr_with_gemini(image_base64: str, mime_type: str) -> str:
     """Gemini APIで画像からテキストをOCRする"""
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model=MODEL_OCR,
         contents=[
             types.Part.from_bytes(
                 data=base64.b64decode(image_base64),

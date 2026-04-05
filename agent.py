@@ -10,8 +10,12 @@ load_dotenv()
 
 # --- 設定 ---
 DEBUG = False       # True にするとAPIを呼ばずダミー出力を返す
-MAX_TOKENS = 10240   # 出力トークン上限（コスト削減の要）
+MAX_TOKENS = 10240  # 出力トークン上限（コスト削減の要）
 CACHE_DIR = ".cache" # キャッシュ保存先
+
+# --- モデル設定 ---
+MODEL_HIGH = "gemini-3-flash-preview"   # 高品質生成（要点まとめ・構成案）
+MODEL_LOW  = "gemini-2.5-flash"   # 軽量処理（OCR等）
 
 # system_promptを短く（トークン削減）
 SYSTEM_PROMPT = (
@@ -49,7 +53,7 @@ class ReportAgent:
 
     # --- API呼び出し（共通化） ---
 
-    def _generate(self, prompt: str) -> str:
+    def _generate(self, prompt: str, max_tokens: int | None = None) -> str:
         """APIを呼び出す共通メソッド。DEBUGモード・キャッシュに対応"""
         key = self._cache_key(prompt)
 
@@ -63,14 +67,17 @@ class ReportAgent:
         if cached:
             return cached
 
+        # max_tokensの決定（Noneなら無制限＝指定なし）
+        token_limit = max_tokens if max_tokens is not None else MAX_TOKENS
+        config_kwargs = {"system_instruction": SYSTEM_PROMPT}
+        if token_limit:
+            config_kwargs["max_output_tokens"] = token_limit
+
         # API呼び出し
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model=MODEL_HIGH,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=MAX_TOKENS,
-            )
+            config=types.GenerateContentConfig(**config_kwargs)
         )
         result = response.text
         self._save_cache(key, result)
@@ -100,19 +107,27 @@ class ReportAgent:
         prompt = f"テーマ：{theme}\n\n以下の資料をもとにレポートの構成案を提案してください。\n\n{content}"
         return self._generate(prompt)
 
-    def summarize_and_structure(self, content: str, theme: str) -> tuple[str, str]:
-        """要約と構成案を1回のAPI呼び出しで同時生成する（API呼び出し削減）"""
-        prompt = (
-            f"テーマ：{theme}\n\n"
-            f"以下の資料について、①要点まとめ と ②レポート構成案 を続けて出力してください。\n"
-            f"①と②の間は「---」で区切ってください。\n\n{content}"
-        )
-        result = self._generate(prompt)
+    def summarize_and_structure(self, content: str, theme: str, chapter_instruction: str = "", max_tokens: int | None = None, output_summary: bool = True, output_report: bool = True) -> tuple[str, str]:
+        """要約とレポート全文を生成する。output_summary/output_reportで個別に制御可能"""
+        chapter_note = f"\n{chapter_instruction}" if chapter_instruction else ""
 
-        # 「---」で分割して返す
-        parts = result.split("---", 1)
-        summary = parts[0].strip()
-        structure = parts[1].strip() if len(parts) > 1 else ""
+        summary = ""
+        structure = ""
+
+        # ①要点まとめ
+        if output_summary:
+            summary_prompt = f"以下の資料の要点をまとめてください。\n\n{content}"
+            summary = self._generate(summary_prompt, max_tokens=max_tokens)
+
+        # ②レポート全文
+        if output_report:
+            structure_prompt = (
+                f"テーマ：{theme}\n\n"
+                f"以下の資料をもとに、レポートを完全に記述してください。"
+                f"各章の内容を詳細に執筆し、構成案ではなく実際のレポート本文として仕上げてください。{chapter_note}\n\n{content}"
+            )
+            structure = self._generate(structure_prompt, max_tokens=max_tokens)
+
         return summary, structure
 
     # --- 保存 ---

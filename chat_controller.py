@@ -58,16 +58,33 @@ class ChatController:
 
     # --- レポート作成 ---
 
-    def run_report(self, file_paths: list[str], theme: str, force_ocr: bool = False) -> dict:
+    def run_report(self, file_paths: list[str], theme: str, force_ocr: bool = False, chapters: list[str] | None = None, max_tokens: int | None = None, output_summary: bool = True, output_report: bool = True, output_dir: str = ".") -> dict:
         """
         レポート作成の一連処理を実行する。
-        戻り値: {"summary": パス, "structure": パス, "error": エラー文字列 or None}
+        output_dir: 出力先ディレクトリ（プロジェクトフォルダ）
         """
+        import os
         try:
             content = self.report_agent.load_files(file_paths, force_ocr=force_ocr)
-            summary, structure = self.report_agent.summarize_and_structure(content, theme)
-            self.report_agent.save_docx(summary, "summary.docx")
-            self.report_agent.save_docx(structure, "structure.docx")
-            return {"summary": "summary.docx", "structure": "structure.docx", "error": None}
+            chapter_instruction = ""
+            if chapters:
+                chapter_instruction = f"出力する章は以下のみとしてください：{', '.join(chapters)}"
+            summary, structure = self.report_agent.summarize_and_structure(
+                content, theme,
+                chapter_instruction=chapter_instruction,
+                max_tokens=max_tokens,
+                output_summary=output_summary,
+                output_report=output_report,
+            )
+            result = {"summary": None, "structure": None, "error": None}
+            if output_summary and summary:
+                path = os.path.join(output_dir, "summary.docx")
+                self.report_agent.save_docx(summary, path)
+                result["summary"] = path
+            if output_report and structure:
+                path = os.path.join(output_dir, "structure.docx")
+                self.report_agent.save_docx(structure, path)
+                result["structure"] = path
+            return result
         except Exception as e:
             return {"summary": None, "structure": None, "error": str(e)}
