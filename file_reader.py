@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- モデル設定 ---
-MODEL_OCR = "gemini-2.5-flash"  # OCR処理
+MODEL_OCR = "gemini-3.1-flash-lite-preview"  # OCR処理
 
 OCR_CACHE_DIR = ".ocr_cache"  # OCRキャッシュの保存先
 

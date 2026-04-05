@@ -15,7 +15,7 @@ CACHE_DIR = ".cache" # キャッシュ保存先
 
 # --- モデル設定 ---
 MODEL_HIGH = "gemini-3-flash-preview"   # 高品質生成（要点まとめ・構成案）
-MODEL_LOW  = "gemini-2.5-flash"   # 軽量処理（OCR等）
+MODEL_LOW  = "gemini-3.1-flash-lite-preview"   # 軽量処理（OCR等）
 
 # system_promptを短く（トークン削減）
 SYSTEM_PROMPT = (

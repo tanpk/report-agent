@@ -51,7 +51,7 @@ APIキーは [Google AI Studio](https://aistudio.google.com/) で取得できま
 ### WebUI（推奨）
 
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ブラウザが自動で開きます（`http://localhost:8501`）。
@@ -86,7 +86,7 @@ report-agent/
 | 用途 | モデル |
 |---|---|
 | レポート生成（要点まとめ・全文） | `gemini-3-flash-preview` |
-| Excel列番号解析・OCR | `gemini-2.5-flash-lite` |
+| Excel列番号解析・OCR | `gemini-3.0-flash-lite-preview` |
 
 ## 注意事項
 
