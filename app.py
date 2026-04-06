@@ -95,11 +95,21 @@ with tab_graph:
         with col2:
             st.markdown("**グラフの設定**")
             legend_loc = st.selectbox("凡例の位置", ["southeast", "northeast", "northwest", "southwest", "best"])
+            col_xmin, col_xmax = st.columns(2)
+            with col_xmin:
+                x_min = st.text_input("X軸最小値", placeholder="空欄で自動")
+            with col_xmax:
+                x_max = st.text_input("X軸最大値", placeholder="空欄で自動")
             col_ymin, col_ymax = st.columns(2)
             with col_ymin:
                 y_min = st.text_input("Y軸最小値", placeholder="空欄で自動")
             with col_ymax:
                 y_max = st.text_input("Y軸最大値", placeholder="空欄で自動")
+            col_xscale, col_yscale = st.columns(2)
+            with col_xscale:
+                x_scale = st.selectbox("X軸スケール", ["linear", "log"], key="x_scale")
+            with col_yscale:
+                y_scale = st.selectbox("Y軸スケール", ["linear", "log"], key="y_scale")
             col_w, col_h = st.columns(2)
             with col_w:
                 fig_width  = st.number_input("図の幅(px)", value=800, step=100)
@@ -107,7 +117,51 @@ with tab_graph:
                 fig_height = st.number_input("図の高さ(px)", value=600, step=100)
             mat_filename = st.text_input(".matファイル名", value="graph_data.mat")
             m_filename   = st.text_input(".mファイル名", value="output.m")
+            png_name     = st.text_input("出力画像ファイル名", value="graph.png")
             run_matlab   = st.checkbox("MATLABでグラフを生成する", value=True)
+            col_leg, col_grid = st.columns(2)
+            with col_leg:
+                show_legend = st.checkbox("凡例を表示する", value=True)
+            with col_grid:
+                show_grid = st.checkbox("グリッド線を表示する", value=False)
+
+        # 近似曲線の設定
+        st.markdown("**近似曲線**")
+        from graph_agent import FIT_PRESETS
+        fit_curves = []
+
+        preset_checks = {}
+        cols = st.columns(len(FIT_PRESETS) + 1)
+        for i, (name, preset) in enumerate(FIT_PRESETS.items()):
+            preset_checks[name] = cols[i].checkbox(name)
+        use_custom = cols[-1].checkbox("カスタム式")
+
+        for name, preset in FIT_PRESETS.items():
+            if preset_checks[name]:
+                st.markdown(f"*{name}*：`{preset['expr']}`")
+                param_cols = st.columns(len(preset["params"]))
+                params = {}
+                for j, pname in enumerate(preset["params"]):
+                    params[pname] = param_cols[j].number_input(
+                        f"{name} - {pname}", value=1.0, format="%.4f",
+                        key=f"fit_{name}_{pname}"
+                    )
+                fit_curves.append({"expr": preset["expr"], "params": params, "label": name})
+
+        if use_custom:
+            custom_expr = st.text_input("カスタム式（例: a*x^2+b*x+c）", key="custom_expr")
+            if custom_expr:
+                # 式からパラメータ名を自動抽出（x以外の英字変数）
+                import re
+                param_names = sorted(set(re.findall(r'(?<![a-zA-Z_])[a-wyzA-WYZ][a-zA-Z0-9_]*(?![a-zA-Z0-9_])', custom_expr)))
+                if param_names:
+                    param_cols = st.columns(min(len(param_names), 4))
+                    params = {}
+                    for j, pname in enumerate(param_names):
+                        params[pname] = param_cols[j % 4].number_input(
+                            pname, value=1.0, format="%.4f", key=f"custom_param_{pname}"
+                        )
+                    fit_curves.append({"expr": custom_expr, "params": params, "label": "カスタム近似"})
 
         if st.button("グラフ生成", type="primary", key="btn_graph"):
             if not x_name or not y_input:
@@ -117,7 +171,7 @@ with tab_graph:
                 out_dir = str(proj) if proj else "."
                 mat_out = os.path.join(out_dir, mat_filename)
                 m_out   = os.path.join(out_dir, m_filename)
-                png_out = os.path.join(out_dir, "graph.png")
+                png_out = os.path.join(out_dir, png_name)
 
                 # xlsxを一時ファイルに保存（アップロードの場合）
                 tmp_path = None
@@ -138,8 +192,15 @@ with tab_graph:
                     "x_label": x_label, "x_unit": x_unit,
                     "y_label": y_label, "y_unit": y_unit,
                     "legend_location": legend_loc,
+                    "xlim": [float(x_min), float(x_max)] if x_min and x_max else None,
                     "ylim": [float(y_min), float(y_max)] if y_min and y_max else None,
+                    "x_scale": x_scale,
+                    "y_scale": y_scale,
                     "fig_width": int(fig_width), "fig_height": int(fig_height),
+                    "fit_curves": fit_curves,
+                    "show_legend": show_legend,
+                    "show_grid": show_grid,
+                    "png_name": png_name,
                 }
 
                 with st.spinner("xlsxを解析中..."):
@@ -164,7 +225,7 @@ with tab_graph:
                             st.success("グラフを生成しました")
                             st.image(png_out, caption="生成されたグラフ")
                             with open(png_out, "rb") as f:
-                                st.download_button("📥 グラフ画像をダウンロード", f.read(), file_name="graph.png", mime="image/png")
+                                st.download_button("📥 グラフ画像をダウンロード", f.read(), file_name=png_name, mime="image/png")
 
 # ===========================
 # レポート作成タブ

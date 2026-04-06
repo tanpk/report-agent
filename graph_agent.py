@@ -12,6 +12,14 @@ load_dotenv()
 MODEL_LOW = "gemini-3.1-flash-lite-preview"  # 軽量処理（Excel列番号解析等）
 
 MARKERS = ["*", "x", "o", "^", "square", "+", "diamond"]
+
+# 近似曲線のプリセット
+FIT_PRESETS = {
+    "Logarithmic fit": {"expr": "-a*log(x)+b",  "params": ["a", "b"]},
+    "Linear fit":      {"expr": "a*x+b",        "params": ["a", "b"]},
+    "Power fit":       {"expr": "a*x.^n+b",     "params": ["a", "n", "b"]},
+    "Exponential fit": {"expr": "a*exp(b*x)",   "params": ["a", "b"]},
+}
 LEGEND_LOCATIONS = ["southeast", "northeast", "northwest", "southwest", "best"]
 
 SYSTEM_PROMPT = (
@@ -169,50 +177,132 @@ class GraphAgent:
     def generate_matlab(self, axes: dict, mat_filename: str) -> str:
         """
         .matを読み込んでグラフを描画するMATLABコードを生成する。
-        save_mat()で生成した.matはload一発で変数が展開される。
         """
-        x_name = axes["x_name"]
-        y_names = axes["y_names"]
-        x_label = f"{axes['x_label']} [{axes['x_unit']}]"
-        y_label = f"{axes['y_label']} [{axes['y_unit']}]"
+        x_name     = axes["x_name"]
+        y_names    = axes["y_names"]
+        # 軸ラベル: 変数名をイタリック体に ($x$ 形式)
+        x_var      = axes["x_label"].split(":")[0].strip()
+        x_rest     = axes["x_label"][len(x_var):]
+        x_label    = f"${x_var}${x_rest} [{axes['x_unit']}]"
+        y_var      = axes["y_label"].split(":")[0].strip()
+        y_rest     = axes["y_label"][len(y_var):]
+        y_label    = f"${y_var}${y_rest} [{axes['y_unit']}]"
 
-        ylim = axes.get("ylim")
+        xlim       = axes.get("xlim")
+        ylim       = axes.get("ylim")
+        x_scale    = axes.get("x_scale", "linear")
+        y_scale    = axes.get("y_scale", "linear")
         fig_width  = axes.get("fig_width", 800)
         fig_height = axes.get("fig_height", 600)
+        show_legend = axes.get("show_legend", True)
+        show_grid   = axes.get("show_grid", False)
+        png_name    = axes.get("png_name", "graph.png")
+        fit_curves  = axes.get("fit_curves", [])
 
         lines = []
         lines.append(f"load {mat_filename}")
         lines.append("")
         lines.append(f"fig = figure('Position', [100, 100, {fig_width}, {fig_height}]);")
 
+        # データのプロット
         lines.append(f'plot({x_name}, {y_names[0]}, "{MARKERS[0]}")')
         lines.append(f'xlabel("{x_label}")')
         lines.append(f'ylabel("{y_label}")')
 
-        if len(y_names) > 1:
+        needs_hold = len(y_names) > 1 or bool(fit_curves)
+        if needs_hold:
             lines.append("hold on")
             for i, y_name in enumerate(y_names[1:], 1):
                 lines.append(f'plot({x_name}, {y_name}, "{MARKERS[i % len(MARKERS)]}")')
 
-        legend_labels = ", ".join(f"'{y}'" for y in y_names)
-        lines.append(f"legend({legend_labels}, 'Location', '{axes['legend_location']}')")
+        # 近似曲線（実線/破線を自動判定）
+        fit_legend_labels = []
+        for fit in fit_curves:
+            fit_lines, fit_label = self._build_fit_curve_block(fit, x_name, xlim)
+            lines.extend(fit_lines)
+            fit_legend_labels.append(fit_label)
 
-        if len(y_names) > 1:
+        # 凡例
+        if show_legend:
+            legend_labels = ", ".join(f"'Data'" if len(y_names) == 1 else f"'{y}'" for y in y_names)
+            if len(y_names) > 1:
+                legend_labels = ", ".join(f"'{y}'" for y in y_names)
+            else:
+                legend_labels = "'Data'"
+            if fit_legend_labels:
+                legend_labels += ", " + ", ".join(f"'{l}'" for l in fit_legend_labels)
+            lines.append(f"legend({legend_labels}, 'Location', '{axes['legend_location']}')")
+
+        if needs_hold:
             lines.append("hold off")
 
+        # 軸範囲・スケール
+        if xlim:
+            lines.append(f"xlim([{xlim[0]} {xlim[1]}]);")
         if ylim:
             lines.append(f"ylim([{ylim[0]} {ylim[1]}]);")
+        if x_scale == "log":
+            lines.append("set(gca, 'XScale', 'log');")
+        if y_scale == "log":
+            lines.append("set(gca, 'YScale', 'log');")
+
+        # グリッド線
+        if show_grid:
+            lines.append("grid on;")
+            lines.append("set(gca, 'GridColor', [0.5 0.5 0.5], 'GridAlpha', 0.5);")
 
         lines.append("")
         lines.append("set(fig, 'Color', 'white');")
         lines.append("set(gca, 'Color', 'white');")
         lines.append("set(gca, 'XColor', 'black', 'YColor', 'black');")
-        lines.append("leg = legend;")
-        lines.append("set(leg, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');")
-        lines.append("saveas(fig, 'graph.png');")
+        if show_legend:
+            lines.append("leg = legend;")
+            lines.append("set(leg, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');")
+        lines.append(f"saveas(fig, '{png_name}');")
         lines.append("exit;")
 
         return "\n".join(lines)
+
+    def _build_fit_curve_block(self, fit: dict, x_col: str, xlim: list | None = None) -> tuple[list[str], str]:
+        """
+        近似曲線のMATLABコードブロックを生成する。
+        データ範囲内は実線、外挿範囲は破線で描画する。
+        戻り値: (コード行リスト, 凡例ラベル)
+        """
+        import re
+        lines = []
+        for name, value in fit["params"].items():
+            lines.append(f"{name} = {value};")
+
+        # x範囲: xlimが指定されていればその全域、なければデータ範囲
+        if xlim:
+            x_start, x_end = xlim[0], xlim[1]
+        else:
+            x_start, x_end = f"min({x_col})", f"max({x_col})"
+
+        # データ範囲（実線）と外挿範囲（破線）を分けて描画
+        # データ範囲: min(x_col)〜max(x_col)
+        expr_template = re.sub(r'(?<![a-zA-Z_])x(?![a-zA-Z_0-9])', '{VAR}', fit["expr"])
+
+        # 外挿範囲（データより左）
+        if xlim:
+            lines.append(f"x_pre = linspace({x_start}, min({x_col}), 200);")
+            lines.append(f"f_pre = {expr_template.replace('{VAR}', 'x_pre')};")
+            lines.append("plot(x_pre, f_pre, '--', 'Color', [0.5 0.5 0.5])")
+
+        # データ範囲内（実線）
+        lines.append(f"x_fit = linspace(min({x_col}), max({x_col}), 500);")
+        lines.append(f"f_fit = {expr_template.replace('{VAR}', 'x_fit')};")
+        lines.append('plot(x_fit, f_fit, "-")')
+
+        # 外挿範囲（データより右）
+        if xlim:
+            lines.append(f"x_post = linspace(max({x_col}), {x_end}, 200);")
+            lines.append(f"f_post = {expr_template.replace('{VAR}', 'x_post')};")
+            lines.append("plot(x_post, f_post, '--', 'Color', [0.5 0.5 0.5])")
+
+        label = fit.get("label", "Fit")
+        return lines, label
 
     # --- 保存 ---
 
